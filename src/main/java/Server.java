@@ -5,6 +5,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -13,6 +14,8 @@ public class Server {
     private List<Socket> clientsSockets;
     private List<String> validPath;
     private final ExecutorService threadPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    private Request request;
+    private Map<Map<Request, String>, Handler> handlersMap;
 
     public Server() {
         System.out.println("Server started!");
@@ -90,5 +93,9 @@ public class Server {
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    public void addHandler(String requestType, String path, Handler handler){
+
     }
 }

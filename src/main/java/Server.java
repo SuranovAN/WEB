@@ -12,7 +12,8 @@ public class Server {
     private ServerSocket serverSocket;
     private List<Socket> clientsSockets;
     private List<String> validPath;
-    private final ExecutorService threadPool = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors());
+    private final int poolSize = 64;
+    private final ExecutorService threadPool = Executors.newFixedThreadPool(poolSize);
 
     public Server() {
         System.out.println("Server started!");

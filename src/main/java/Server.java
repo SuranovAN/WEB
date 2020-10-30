@@ -4,19 +4,22 @@ import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class Server {
     private ServerSocket serverSocket;
     private List<Socket> clientsSockets;
-    private List<String> validPath;
-    private final int poolSize = 64;
+    private List<String> validPath = new ArrayList<>();
+    private final static int poolSize = 64;
     private final ExecutorService threadPool = Executors.newFixedThreadPool(poolSize);
 
     public Server() {
         System.out.println("Server started!");
+        validPath.add("/classic.html");
     }
 
     public List<String> getValidPath() {
@@ -36,8 +39,21 @@ public class Server {
             if (parts.length != 3) {
                 socket.close();
             }
-            final var path = parts[1];
 
+            final var path = parts[1];
+            checkValidPath(parts[1], socket, out);
+
+            final var filePath = Path.of(".", "public", path);
+            final var mimeType = Files.probeContentType(filePath);
+            readFile(path, filePath, mimeType, socket, out);
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private void checkValidPath(String path, Socket socket, BufferedOutputStream out) {
+        try {
             if (!validPath.contains(path)) {
                 out.write(("HTTP/1.1 404Not Found\r\n" +
                         "Content-Length: 0\r\n" +
@@ -47,48 +63,38 @@ public class Server {
                 out.flush();
                 socket.close();
             }
-
-            final var filePath = Path.of(".", "public", path);
-            final var mimeType = Files.probeContentType(filePath);
-
-            if (path.equals("/classic.html")) {
-                final var template = Files.readString(filePath);
-                final var content = template.replace(
-                        "{time}",
-                        LocalDateTime.now().toString()
-                ).getBytes();
-                out.write(("HTTP/1.1 200 OK\r\n" +
-                                "Content-Type: " + mimeType + "\r\n" +
-                                "Content-Length: " + content.length + "\r\n" +
-                                "Connection: close\r\n" +
-                                "\r\n"
-                ).getBytes());
-                out.write(content);
-                out.flush();
-                socket.close();
-            }
-
-            final var length = Files.size(filePath);
-            out.write(("HTTP/1.1 200 OK\r\n" +
-                            "Content-Type: " + mimeType + "\r\n" +
-                            "Content-Length: " + length + "\r\n" +
-                            "Connection: close\r\n" +
-                            "\r\n"
-            ).getBytes());
-            Files.copy(filePath, out);
-            out.flush();
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
 
+    private void readFile(String path, Path filePath, String mimeType, Socket socket, BufferedOutputStream out) {
+        try {
+            if (path.equals("/classic.html")) {
+                final var length = Files.size(filePath);
+                out.write(("HTTP/1.1 200 OK\r\n" +
+                        "Content-Type: " + mimeType + "\r\n" +
+                        "Content-Length: " + length + "\r\n" +
+                        "Connection: close\r\n" +
+                        "\r\n"
+                ).getBytes());
+                Files.copy(filePath, out);
+                out.flush();
+                socket.close();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+
     public void listen(int port) {
         try {
             serverSocket = new ServerSocket(port);
             while (true) {
-                threadPool.execute(this::handle);
+                threadPool.submit(this::handle).get();
             }
-        } catch (IOException e) {
+        } catch (IOException | InterruptedException | ExecutionException e) {
             e.printStackTrace();
         }
     }

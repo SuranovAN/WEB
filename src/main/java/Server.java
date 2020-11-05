@@ -5,17 +5,14 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Optional;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class Server {
     private ServerSocket serverSocket;
-    private List<String> allowedMethods;
+    private final List<String> allowedMethods;
     private List<String> validPath = new ArrayList<>();
     private static final int poolSize = 64;
     private final ExecutorService threadPool = Executors.newFixedThreadPool(poolSize);
@@ -26,6 +23,7 @@ public class Server {
     public Server() {
         System.out.println("Server started!");
         allowedMethods = List.of(GET, POST);
+        validPath.add("/default-get.html");
         validPath.add("/classic.html");
     }
 
@@ -62,10 +60,6 @@ public class Server {
                 badRequest(out);
                 socket.close();
             }
-            System.out.println(method);
-
-            final var path = requestLine[1];
-            checkValidPath(requestLine[1], socket, out);
 
             final var headersDelimiter = new byte[]{'\r', '\n', '\r', '\n'};
             final var headersStart = requestLineEnd + requestLineDelimiter.length;
@@ -80,31 +74,31 @@ public class Server {
 
             final var headersByte = in.readNBytes(headersEnd - headersStart);
             final var headers = Arrays.asList(new String(headersByte).split("\r\n"));
-            System.out.println(headers);
+            final var targetPath = requestLine[1].split("");
+            var filePath = Path.of(".", targetPath[1]);
 
-            if (!method.equals(GET)){
+            if (method.equals(GET)) {
+                var content = Files.readString(filePath).getBytes();
+                out.write(("HTTP/1.1 200 OK\r\n" +
+                        "Content-type: " + Files.probeContentType(filePath) + "\r\n" +
+                        "Content-length: " + content.length + "\r\n" +
+                        "Connection: 0" + "\r\n" +
+                        "\r\n"
+                ).getBytes());
+                out.write(content);
+                out.flush();
+            }
+
+            if (!method.equals(GET)) {
                 in.skip(headersDelimiter.length);
                 final var contentLength = extractHeader(headers, "Content-Length");
-                if (contentLength.isPresent()){
+                if (contentLength.isPresent()) {
                     final var length = Integer.parseInt(contentLength.get());
                     final var bodyBytes = in.readNBytes(length);
                     final var body = new String(bodyBytes);
                     System.out.println(body);
                 }
             }
-
-            out.write((
-                    "HTTP/1.1 200 OK\r\n" +
-                            "Content-Length: 0\r\n" +
-                            "Connection: close\r\n" +
-                            "\r\n"
-                    ).getBytes());
-            out.flush();
-
-            final var filePath = Path.of(".", "public", path);
-            final var mimeType = Files.probeContentType(filePath);
-            readFile(path, filePath, mimeType, socket, out);
-
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -112,28 +106,8 @@ public class Server {
 
     private void checkValidPath(String path, Socket socket, BufferedOutputStream out) {
         try {
-            if (!validPath.contains(path) || path.startsWith("/")) {
+            if (!validPath.contains(path)) {
                 badRequest(out);
-                System.out.println(path);
-                socket.close();
-            }
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    private void readFile(String path, Path filePath, String mimeType, Socket socket, BufferedOutputStream out) {
-        try {
-            if (path.equals("/classic.html")) {
-                final var length = Files.size(filePath);
-                out.write(("HTTP/1.1 200 OK\r\n" +
-                        "Content-Type: " + mimeType + "\r\n" +
-                        "Content-Length: " + length + "\r\n" +
-                        "Connection: close\r\n" +
-                        "\r\n"
-                ).getBytes());
-                Files.copy(filePath, out);
-                out.flush();
                 socket.close();
             }
         } catch (IOException e) {
@@ -172,7 +146,7 @@ public class Server {
         return -1;
     }
 
-    private static Optional<String> extractHeader(List<String> headers, String header){
+    private static Optional<String> extractHeader(List<String> headers, String header) {
         return headers.stream()
                 .filter(o -> o.startsWith(header))
                 .map(o -> o.substring(o.indexOf(" ")))

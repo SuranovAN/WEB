@@ -74,8 +74,8 @@ public class Server {
 
             final var headersByte = in.readNBytes(headersEnd - headersStart);
             final var headers = Arrays.asList(new String(headersByte).split("\r\n"));
-            final var targetPath = requestLine[1].split("");
-            var filePath = Path.of(".", targetPath[1]);
+            final var filePath = Path.of(".", requestLine[1]);
+            System.out.println(filePath);
 
             if (method.equals(GET)) {
                 var content = Files.readString(filePath).getBytes();

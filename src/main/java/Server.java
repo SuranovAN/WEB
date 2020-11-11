@@ -1,8 +1,11 @@
+import com.sun.net.httpserver.HttpHandler;
+import org.apache.http.NameValuePair;
 import org.apache.http.client.utils.URLEncodedUtils;
 
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
@@ -37,67 +40,26 @@ public class Server {
 
     private void handle() {
         try (var socket = serverSocket.accept();
-             final var in = new BufferedInputStream(socket.getInputStream());
+             final var is = new BufferedInputStream(socket.getInputStream());
              final var out = new BufferedOutputStream(socket.getOutputStream())) {
-            in.mark(limit);
-            final var buffer = new byte[limit];
-            final var read = in.read(buffer);
-            final var requestLineDelimiter = new byte[]{'\r', '\n'};
-            final var requestLineEnd = indexOf(buffer, requestLineDelimiter, 0, read);
-            if (requestLineEnd == -1) {
-                badRequest(out);
-                socket.close();
-            }
-
-            final var requestLine = new String(Arrays.copyOf(buffer, requestLineEnd)).split(" ");
-            if (requestLine.length != 3) {
-                badRequest(out);
-                socket.close();
-            }
-
-            final var method = requestLine[0];
-            if (!allowedMethods.contains(method)) {
-                badRequest(out);
-                socket.close();
-            }
-
-            final var headersDelimiter = new byte[]{'\r', '\n', '\r', '\n'};
-            final var headersStart = requestLineEnd + requestLineDelimiter.length;
-            final var headersEnd = indexOf(buffer, headersDelimiter, headersStart, read);
-            if (headersEnd == -1) {
-                badRequest(out);
-                socket.close();
-            }
-
-            in.reset();
-            in.skip(headersStart);
-
-            final var headersByte = in.readNBytes(headersEnd - headersStart);
-            final var headers = Arrays.asList(new String(headersByte).split("\r\n"));
-            final var filePath = Path.of(".", requestLine[1]);
-            System.out.println(filePath);
-
-            if (method.equals(GET)) {
-                var content = Files.readString(filePath).getBytes();
+            var request = Request.fromInputStream(is);
+            if (!request.getMethod().equals(GET)) {
+                String body = "<div><h3>DATA from POST = " + request.getPar().toString() + "</h3></div>";
                 out.write(("HTTP/1.1 200 OK\r\n" +
-                        "Content-type: " + Files.probeContentType(filePath) + "\r\n" +
-                        "Content-length: " + content.length + "\r\n" +
-                        "Connection: 0" + "\r\n" +
-                        "\r\n"
-                ).getBytes());
-                out.write(content);
+                        "Content-Length: " + body.length() + "\r\n" +
+                        "Connection: Keep-Alive\r\n" +
+                        "\r\n").getBytes());
+                out.write(body.getBytes());
                 out.flush();
-            }
-
-            if (!method.equals(GET)) {
-                in.skip(headersDelimiter.length);
-                final var contentLength = extractHeader(headers, "Content-Length");
-                if (contentLength.isPresent()) {
-                    final var length = Integer.parseInt(contentLength.get());
-                    final var bodyBytes = in.readNBytes(length);
-                    final var body = new String(bodyBytes);
-                    System.out.println(body);
-                }
+            } else {
+                final var filePath = Path.of(".", request.getPath());
+                final var content = Files.readString(filePath);
+                final var mimeType = Files.probeContentType(filePath);
+                out.write(("HTTP/1.1 222 OK\r\n" +
+                        "Content-Type " + mimeType + "\r\n" +
+                        "Content-Length: " + content.length() + "\r\n" +
+                        "\r\n").getBytes());
+                out.write(content.getBytes());
             }
         } catch (IOException e) {
             e.printStackTrace();
@@ -115,12 +77,12 @@ public class Server {
         }
     }
 
-    private void getQueryParam(String name) {
-
-    }
-
-    private void getQueryParams() {
-
+    private static Optional<String> extractHeader(List<String> headers, String header) {
+        return headers.stream()
+                .filter(o -> o.startsWith(header))
+                .map(o -> o.substring(o.indexOf(" ")))
+                .map(String::trim)
+                .findFirst();
     }
 
     private static void badRequest(BufferedOutputStream out) throws IOException {
@@ -131,27 +93,6 @@ public class Server {
                         "\r\n"
         ).getBytes());
         out.flush();
-    }
-
-    private static int indexOf(byte[] array, byte[] target, int start, int max) {
-        outer:
-        for (int i = start; i < max - target.length + 1; i++) {
-            for (int j = 0; j < target.length; j++) {
-                if (array[i + j] != target[j]) {
-                    continue outer;
-                }
-            }
-            return i;
-        }
-        return -1;
-    }
-
-    private static Optional<String> extractHeader(List<String> headers, String header) {
-        return headers.stream()
-                .filter(o -> o.startsWith(header))
-                .map(o -> o.substring(o.indexOf(" ")))
-                .map(String::trim)
-                .findFirst();
     }
 
     public void listen(int port) {
